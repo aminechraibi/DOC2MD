@@ -1,0 +1,136 @@
+name: Automated Release & Signed APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, Sign & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant Execute Permission for Gradle
+        run: chmod +x gradlew || true
+
+      - name: Run Unit Tests
+        run: gradle :app:testDebugUnitTest --no-daemon
+
+      - name: Calculate Version Tag
+        if: github.event_name == 'push'
+        id: versioning
+        run: |
+          # Fetch latest tag or default to v1.0.0
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          
+          # Clean 'v' prefix
+          VERSION=${LATEST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          MAJOR=${MAJOR:-1}
+          MINOR=${MINOR:-0}
+          PATCH=${PATCH:-0}
+
+          # Check commit history for semantic versioning indicators
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if [[ "$COMMIT_MSG" =~ (#major|BREAKING CHANGE|feat!:) ]]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+            BUMP_TYPE="Major"
+          elif [[ "$COMMIT_MSG" =~ (#minor|feat:) ]]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            BUMP_TYPE="Minor"
+          else
+            PATCH=$((PATCH + 1))
+            BUMP_TYPE="Patch"
+          fi
+
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
+          echo "NEW_VERSION=${MAJOR}.${MINOR}.${PATCH}" >> $GITHUB_ENV
+          echo "BUMP_TYPE=${BUMP_TYPE}" >> $GITHUB_ENV
+          echo "Generated tag: ${NEW_TAG} (${BUMP_TYPE} update)"
+
+      - name: Setup Keystore for Release Signing
+        if: github.event_name == 'push'
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Decoding release keystore from secrets..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.jks
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/release.jks" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          else
+            echo "No custom keystore secret found. Generating self-signed release key..."
+            keytool -genkeypair -v -keystore release.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Doc2MD, OU=Mobile, O=Doc2MD, L=City, S=State, C=US"
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/release.jks" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEY_ALIAS=upload" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
+          fi
+
+      - name: Build Signed Release APK
+        if: github.event_name == 'push'
+        run: gradle :app:assembleRelease --no-daemon
+
+      - name: Package APK for Release
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p release-output
+          cp app/build/outputs/apk/release/*.apk release-output/Doc2MD-${NEW_TAG}.apk
+          echo "APK ready at release-output/Doc2MD-${NEW_TAG}.apk"
+
+      - name: Tag Repository
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${NEW_TAG}" -m "Release ${NEW_TAG} (${BUMP_TYPE} update)" || true
+          git push origin "${NEW_TAG}" || true
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.NEW_TAG }}
+          name: Doc2MD ${{ env.NEW_TAG }}
+          body: |
+            ## 📄 Doc2MD Release ${{ env.NEW_TAG }} (${{ env.BUMP_TYPE }} Update)
+
+            ### Highlights
+            - **Signed Android APK** ready for direct installation (`Doc2MD-${{ env.NEW_TAG }}.apk`).
+            - Universal Document Reader & Markdown Workspace Converter (PDF, DOCX, PPTX, XLSX, CSV, JSON, HTML, TXT, Code).
+            - Built with Jetpack Compose, Material 3, Kotlin Coroutines, Room Database, and Storage Access Framework.
+
+            ### Mobile Installation
+            1. Download `Doc2MD-${{ env.NEW_TAG }}.apk` directly on your Android device.
+            2. Open the downloaded file and enable **Install from Unknown Sources** if prompted.
+            3. Launch **Doc2MD** to view, convert, and manage your document workspaces offline!
+          files: |
+            release-output/Doc2MD-${{ env.NEW_TAG }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
