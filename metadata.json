@@ -1,0 +1,6 @@
+{
+  "name": "Doc2MD",
+  "description": "Universal document reader and converter into Markdown workspace with preview, search, and export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
