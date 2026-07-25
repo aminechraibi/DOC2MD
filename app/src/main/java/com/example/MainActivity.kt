@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.core.content.IntentCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -148,7 +149,7 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return
         val action = intent.action
         val uri: Uri? = if (action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) {
-            intent.data ?: intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            intent.data ?: IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
         } else null
 
         uri?.let {

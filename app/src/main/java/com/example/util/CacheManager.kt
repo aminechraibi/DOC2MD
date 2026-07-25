@@ -14,8 +14,16 @@ data class StorageUsageStats(
 
 class CacheManager(private val context: Context) {
 
-    private val workspacesDir: File
+    val workspacesDir: File
         get() = File(context.cacheDir, "workspaces")
+
+    fun getWorkspaceDir(documentId: String): File {
+        val dir = File(workspacesDir, documentId)
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
+    }
 
     suspend fun getStorageUsage(): StorageUsageStats = withContext(Dispatchers.IO) {
         var previewsSize = 0L

@@ -12,6 +12,7 @@ import com.example.util.AppThemeMode
 import com.example.util.CacheManager
 import com.example.util.SettingsManager
 import com.example.util.StorageUsageStats
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +46,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedFilter = MutableStateFlow("ALL") // ALL, PDF, DOCX, PPTX, XLSX, TEXT
     val selectedFilter: StateFlow<String> = _selectedFilter.asStateFlow()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     val documentsList: StateFlow<List<DocumentEntity>> = combine(_searchQuery, _selectedFilter) { query, filter ->
         Pair(query, filter)
     }.flatMapLatest { (query, filter) ->
